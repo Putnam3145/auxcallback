@@ -5,7 +5,7 @@ use auxtools::*;
 
 use coarsetime::{Duration, Instant};
 
-type DeferredFunc = Box<dyn Fn(&DMContext) -> DMResult + Send + Sync>;
+type DeferredFunc = Box<dyn Fn() -> DMResult + Send + Sync>;
 
 type CallbackChannel = (flume::Sender<DeferredFunc>, flume::Receiver<DeferredFunc>);
 
@@ -56,28 +56,29 @@ pub fn callback_receiver_by_id(id: String) -> Option<flume::Receiver<DeferredFun
 
 /// Goes through every single outstanding callback and calls them.
 /// All callback processing should be called from byond. To enforce this, a context is required.
-pub fn process_all_callbacks(ctx: &DMContext) {
+pub fn process_all_callbacks() -> DMResult<()> {
     let stack_trace = Proc::find("/proc/auxtools_stack_trace").unwrap();
     for entry in CALLBACK_CHANNELS.iter() {
         let receiver = entry.value().1.clone();
         for callback in receiver {
-            if let Err(e) = callback(ctx) {
-                let _ = stack_trace.call(&[&Value::from_string(e.message.as_str())]);
+            if let Err(e) = callback() {
+                let _ = stack_trace.call(&[&Value::from_string(e.message.as_str())?]);
             }
             drop(callback);
         }
     }
+    Ok(())
 }
 
 /// Goes through every single outstanding callback and calls them, until a given time limit is reached.
-pub fn process_all_callbacks_for(ctx: &DMContext, duration: Duration) -> bool {
+pub fn process_all_callbacks_for(duration: Duration) -> DMResult<bool> {
     let now = Instant::now();
     let stack_trace = Proc::find("/proc/auxtools_stack_trace").unwrap();
     'outer: for entry in CALLBACK_CHANNELS.iter() {
         let receiver = entry.value().1.clone();
         for callback in receiver.try_iter() {
-            if let Err(e) = callback(ctx) {
-                let _ = stack_trace.call(&[&Value::from_string(e.message.as_str())]);
+            if let Err(e) = callback() {
+                let _ = stack_trace.call(&[&Value::from_string(e.message.as_str())?]);
             }
             drop(callback);
             if now.elapsed() > duration {
@@ -85,46 +86,47 @@ pub fn process_all_callbacks_for(ctx: &DMContext, duration: Duration) -> bool {
             }
         }
     }
-    now.elapsed() > duration
+    Ok(now.elapsed() > duration)
 }
 
 /// Goes through every single outstanding callback and calls them, until a given time limit in milliseconds is reached.
-pub fn process_all_callbacks_for_millis(ctx: &DMContext, millis: u64) -> bool {
-    process_all_callbacks_for(ctx, Duration::from_millis(millis))
+pub fn process_all_callbacks_for_millis(millis: u64) -> DMResult<bool> {
+    process_all_callbacks_for(Duration::from_millis(millis))
 }
 
 /// Goes through all outstanding callbacks from a given ID and calls them.
-pub fn process_callbacks(ctx: &DMContext, id: String) {
+pub fn process_callbacks(id: String) -> DMResult<()> {
     let receiver = callback_receiver_by_id_insert(id);
     let stack_trace = Proc::find("/proc/auxtools_stack_trace").unwrap();
     for callback in receiver.try_iter() {
-        if let Err(e) = callback(ctx) {
-            let _ = stack_trace.call(&[&Value::from_string(e.message.as_str())]);
+        if let Err(e) = callback() {
+            let _ = stack_trace.call(&[&Value::from_string(e.message.as_str())?]);
         }
         drop(callback);
     }
+    Ok(())
 }
 
 /// Goes through outstanding callbacks from a given ID and calls them until all are exhausted or time limit is reached.
-pub fn process_callbacks_for(ctx: &DMContext, id: String, duration: Duration) -> bool {
+pub fn process_callbacks_for(id: String, duration: Duration) -> DMResult<bool> {
     let receiver = callback_receiver_by_id_insert(id);
     let now = Instant::now();
     let stack_trace = Proc::find("/proc/auxtools_stack_trace").unwrap();
     for callback in receiver.try_iter() {
-        if let Err(e) = callback(ctx) {
-            let _ = stack_trace.call(&[&Value::from_string(e.message.as_str())]);
+        if let Err(e) = callback() {
+            let _ = stack_trace.call(&[&Value::from_string(e.message.as_str())?]);
         }
         if now.elapsed() > duration {
             break;
         }
         drop(callback);
     }
-    now.elapsed() > duration
+    Ok(now.elapsed() > duration)
 }
 
 /// Goes through outstanding callbacks from a given ID and calls them until a given time limit in milliseconds is reached.
-pub fn process_callbacks_for_millis(ctx: &DMContext, id: String, millis: u64) -> bool {
-    process_callbacks_for(ctx, id, Duration::from_millis(millis))
+pub fn process_callbacks_for_millis(id: String, millis: u64) -> DMResult<bool> {
+    process_callbacks_for(id, Duration::from_millis(millis))
 }
 
 // This function is to be called from byond, preferably once a tick.
@@ -138,23 +140,23 @@ pub fn process_callbacks_for_millis(ctx: &DMContext, id: String, millis: u64) ->
 fn _process_callbacks() {
     match args.len() {
         0 => {
-            process_all_callbacks(ctx);
+            process_all_callbacks()?;
             Ok(Value::null())
         }
         1 => {
-            process_callbacks(ctx, args.get(0).unwrap().as_string()?);
+            process_callbacks(args.get(0).unwrap().as_string()?)?;
             Ok(Value::null())
         }
         2 => {
             let arg_limit = args.get(1).unwrap().as_number()? as u64;
             if let Ok(arg_str) = args.get(0).unwrap().as_string() {
                 Ok(Value::from(process_callbacks_for_millis(
-                    ctx, arg_str, arg_limit,
-                )))
+                    arg_str, arg_limit,
+                )?))
             } else {
                 Ok(Value::from(process_all_callbacks_for_millis(
-                    ctx, arg_limit,
-                )))
+                    arg_limit,
+                )?))
             }
         }
         _ => Err(runtime!(
