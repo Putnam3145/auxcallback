@@ -23,7 +23,7 @@ dependencies = [
 [[package]]
 name = "auxtools"
 version = "0.1.0"
-source = "git+https://github.com/willox/auxtools#cc2c8b3605d29e7442a2044b88e7c91cb1015f67"
+source = "git+https://github.com/willox/auxtools#a30912ee66d8cef1e276e24563aac618de9d8382"
 dependencies = [
  "auxtools-impl",
  "cc",
@@ -39,7 +39,7 @@ dependencies = [
 [[package]]
 name = "auxtools-impl"
 version = "0.1.0"
-source = "git+https://github.com/willox/auxtools#cc2c8b3605d29e7442a2044b88e7c91cb1015f67"
+source = "git+https://github.com/willox/auxtools#a30912ee66d8cef1e276e24563aac618de9d8382"
 dependencies = [
  "hex",
  "proc-macro2",
